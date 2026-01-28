@@ -149,26 +149,6 @@ By visualizing the **Spatio-Temporal Availability Matrix** (Figure 2), we can vi
 
 
 
-### 📂 Project Structure
-
-We follow a minimalist structure to ensure immediate reproducibility.
-
-```text
-PeMS-Analysis/
-├── data/
-│   ├── PEMS08.npz          # Raw Traffic Tensor
-│   └── PEMS08.csv          # Static Graph Topology
-├── notebooks/
-│   └── 01_Data_Profiling.ipynb  # [Core] Statistical Analysis & Visualization
-├── images/                 # Generated Figures
-│   ├── 01_distribution.png
-│   └── 01_missing_matrix.png
-├── requirements.txt        # Dependencies
-└── README.md               # You are here
-
-```
-
-
 <div align="center">
 
 
@@ -234,87 +214,178 @@ Raw traffic data is noisy. Based on the spectrum above, we apply a **Low-Pass Fi
 
 
 
+
 ---
 
-### 📉 Analysis 2: Trend vs. Noise Decomposition
+### 📉 Analysis 2: Stationarity & Distribution Shift (Concept Drift)
 
-Raw traffic data is noisy. By applying a **Low-Pass Filter** in the frequency domain, we can separate the "True Trend" from "Random Noise".
+A fundamental assumption of many traditional time-series models (like ARIMA) is **Stationarity**—the idea that the statistical properties (mean and variance) of the data remain constant over time.
+
+**Is PeMS data stationary? The answer is No.** As shown below, it exhibits significant **Cyclostationarity** and **Distribution Shift**.
 
 #### 🐍 Code Analysis
-
-We zero out high-frequency components (Noise) and reconstruct the signal using Inverse FFT (`irfft`).
+We visualize the **Rolling Statistics** and compare the probability distributions of traffic flow at different times of the day (3:00 AM vs. 5:00 PM).
 
 ```python
-from scipy.fft import irfft
+# 1. Rolling Statistics (Proof of Time-Varying Mean/Std)
+# Calculate Mean and Std over a 12-hour sliding window
+window_size = 144 
+rolmean = pd.Series(signal).rolling(window=window_size).mean()
+rolstd = pd.Series(signal).rolling(window=window_size).std()
 
-# Define Cutoff: Keep only frequencies lower than 1 cycle per 2 hours
-cutoff_freq = 1 / 2.0 
-yf_clean = yf.copy()
-yf_clean[xf > cutoff_freq] = 0
-
-# Reconstruct
-clean_signal = irfft(yf_clean)
-noise = signal - clean_signal
+# 2. Distribution Shift Comparison (Concept Drift)
+# Extract data slices for Night (3:00 AM) and Rush Hour (5:00 PM)
+dist_night = signal[indices_3am]
+dist_rush  = signal[indices_5pm]
 
 ```
 
-#### 🧠 Deep Insight
+#### 🧠 Deep Insight: The "Covariate Shift" Challenge
 
-* **Trend (Low Frequency):** Represents the macro traffic pattern (e.g., rush hour formation). This is predictable.
-* **Noise (High Frequency):** Represents random events (e.g., a car braking suddenly, sensor jitter). This is **unpredictable**.
-* **Takeaway:** Effective forecasting models should focus on learning the trend while being robust to the high-frequency noise floor.
+Visualizing the statistical properties reveals a critical challenge for machine learning models.
+
+> **Figure 5** below illustrates why a single global normalization (like StandardScalar) is insufficient.
 
 <p align="center">
-<img src="images/02_trend_decomposition.png" width="90%">
+<img width="1584" height="983" alt="image" src="https://github.com/user-attachments/assets/99e3ad24-08f9-42d4-89f0-93cecb5585fe" />
 
 
 
 
 
-<em>Figure 4: Signal Decomposition. The Orange line (Trend) captures the commute, while the Blue area (Residuals) captures random noise.</em>
+
+
+<em><b>Figure 5a (Top):</b> The Rolling Mean (Red) and Rolling Std (Black) are constantly oscillating, proving <b>Non-Stationarity</b>.
+
+
+
+
+
+<b>Figure 5b (Bottom):</b> <b>The Distribution Shift.</b> Traffic at 3:00 AM (Blue) follows a completely different probability distribution than traffic at 5:00 PM (Orange).</em>
 </p>
+
+**Key Findings:**
+
+1. **Time-Varying Statistics (Figure 5a):**
+* The **Red Line** (Mean) is not flat; it oscillates drastically between day and night.
+* The **Black Dashed Line** (Variance) also fluctuates. This means the "difficulty" of prediction changes over time.
+* **Implication:** A model trained to expect a fixed mean will fail. The "Ground Truth" is a moving target.
+
+
+2. **Concept Drift (Figure 5b):**
+* **The Blue Curve (Night):** Sharp, narrow, and centered at low values. This represents **Low Mean & Low Variance** (Easy to predict).
+* **The Orange Curve (Rush Hour):** Flat, wide, and centered at high values. This represents **High Mean & High Variance** (Hard to predict).
+* **The Conflict:** These two distributions have almost **no overlap**. Treating them as the same "data" confuses the neural network.
+
+
+
+> **Takeaway:** This analysis proves the necessity of **Adaptive Normalization** techniques (like **RevIN** or **Stationary Attention**). The model must dynamically adjust its statistical view for each input window to align these disparate distributions.
+---
+
+
 
 ---
 
-### 📉 Analysis 3: Stationarity Test (ADF)
+### 🛠 Analysis 3: Spatial Heterogeneity & Noise Handling
 
-Most Time-Series models (like ARIMA) assume the data is **Stationary** (mean and variance do not change over time). Is PeMS stationary?
+Before we can trust our model, we must answer two critical questions:
+1.  **Where is the noise?** Is it evenly distributed across the city, or are there specific "bad actors"?
+2.  **How do we handle it?** When we apply spectral filtering, how do we mathematically prove we haven't destroyed valid information?
 
 #### 🐍 Code Analysis
-
-We perform the **Augmented Dickey-Fuller (ADF)** test.
+We compute the noise energy (standard deviation of high-frequency components) for all 170 nodes to diagnose spatial heterogeneity. Then, we perform spectral "surgery" on the noisiest node.
 
 ```python
-from statsmodels.tsa.stattools import adfuller
+# 1. Identify "Chaos Hubs" (High-Pass Filter)
+noise_energies = [std(high_pass(data[:, i])) for i in range(num_nodes)]
 
-result = adfuller(signal[:2000]) # Test on a subset
-print(f"ADF Statistic: {result[0]}")
-print(f"p-value: {result[1]}")
+# 2. Spectral Surgery (Low-Pass Filter)
+# Keep only frequencies f < f_cutoff (Period > 4h)
+trend = low_pass(raw_signal)
 
 ```
 
-#### 🧠 Deep Insight
+#### 🧠 Deep Insight: Surgical Precision in Denoising
 
-* **Result:** The p-value is often very low (), technically rejecting the null hypothesis of a unit root.
-* **Nuance:** However, traffic is **Cyclostationary**, not strictly stationary. The mean shifts drastically between 3:00 AM and 5:00 PM.
-* **Takeaway:** Simple normalization techniques (like standard Z-Score) might be insufficient. Advanced handling of distribution shifts (e.g., periodic normalization) is often required.
+> **Figure 6** combines spatial diagnosis (top) and temporal treatment (bottom).
+
+<p align="center">
+<img width="1332" height="1021" alt="image" src="https://github.com/user-attachments/assets/9c060e34-9ab7-4b9e-9162-1e315c47f262" />
+
+
+
+
+
+
+<em><b>Figure 6a (Top): Spatial Heterogeneity.</b> The noise is NOT uniform. The red bars highlight specific nodes that act as "Chaos Hubs," injecting high uncertainty into the graph.
+
+
+
+
+
+<b>Figure 6b (Bottom): The Filtering Process.</b> We visualize the "surgery" on the noisiest node. The <b>Grey Line</b> is the raw input. The <b>Blue Line</b> is the clean trend. The <b>Red Shaded Area</b> represents the high-frequency jitter that is mathematically sliced away.</em>
+</p>
+
+**Key Findings:**
+
+1. **Heterogeneity (Fig 6a):** A robust GNN must account for node-specific uncertainty. Treating clean (blue) nodes and chaotic (red) nodes equally will degrade performance. This motivates **Spatial Attention** or **Uncertainty Weighting**.
+2. **Information Preservation (Fig 6b):** Notice that the **Red Shaded Area** (removed noise) contains only jagged, random fluctuations. The **Blue Line** (retained trend) perfectly preserves the rush hour peaks.
 
 ---
 
-### 🚀 Conclusion for Part 2
+#### 🧮 Supplement: Mathematical Derivation & Validity Check
 
-We have unlocked the frequency domain secrets of PEMS08:
+*(Why is this filtering valid?)*
 
-1. **Dominant Periodicity:** 24-hour cycle is the "Ground Truth".
-2. **Spectral Sparsity:** Most information is concentrated in a few low frequencies.
-3. **Noise Floor:** A significant portion of the signal is high-frequency noise.
+**1. The Mathematical Process**
+We treat the traffic flow  as a discrete signal and process it in three steps:
 
-**👉 Next Step: [Part 3 - Causal Discovery]**
-Now that we understand the *Signal*, we must understand the *Structure*. We will challenge the static adjacency matrix and discover real **Time-Lagged Causal Links**.
+* **Step 1 (Transformation):** Decompose signal into spectral coefficients using DFT.
+<p align="center">
+<img width="179" height="56" alt="image" src="https://github.com/user-attachments/assets/8bc890fe-b7c9-4656-a257-2ec200bfc7a2" />
+
+
+
+* **Step 2 (Masking):** Apply a binary mask  to separate frequencies higher than the cutoff  (4-hour period).
+<p align="center">
+<img width="194" height="33" alt="image" src="https://github.com/user-attachments/assets/6d1eea99-36bd-4a12-99e1-58d1165c91da" />
+
+
+* **Step 3 (Reconstruction):** Recover the clean signal using Inverse DFT.
+<p align="center">
+<img width="180" height="29" alt="image" src="https://github.com/user-attachments/assets/5ea329fe-7003-44f0-b4bc-863a579ac122" />
+
+
+
+**2. Validity Check: Did we kill the signal?**
+We use **Spectral Energy Concentration** to verify validity.
+<p align="center">
+<img width="203" height="41" alt="image" src="https://github.com/user-attachments/assets/55176a16-9860-42ef-ad34-9dad436c273a" />
+
+
+
+> **Conclusion:** Our validation shows that retaining only low-frequency components (>4h period) preserves **~96.5%** of the total signal energy. This mathematically proves that the discarded high-frequency components are indeed "low-energy noise" rather than useful traffic information.
 
 ---
 
-<div align="center">
+
+### 📂 Project Structure
+
+We follow a minimalist structure to ensure immediate reproducibility. The analysis is divided into two core phases: **Statistical Profiling** and **Signal Processing**.
+
+```text
+PeMS-Analysis/
+├── data/
+│   ├── PEMS08.npz                        # Raw Traffic Tensor
+│   └── PEMS08.csv                        # Static Graph Topology
+|
+├── notebooks/
+│   ├── 01_Data_Profiling.ipynb           # [Part 1]
+│   └── 02_Signal_Analysis.ipynb          # [Part 2]
+|
+├── requirements.txt                      
+└── README.md                             
+
 
 
 
