@@ -4,9 +4,8 @@
 
 # 🚦 Beyond the Adjacency Matrix: A Deep Dive into PEMS
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=for-the-badge&logo=python)
-![NumPy](https://img.shields.io/badge/Library-NumPy%20%7C%20Pandas-orange?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Part%201%20Completed-success?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.11+%2B-blue?style=for-the-badge&logo=python)
+<img width="1280" height="640" alt="image" src="https://github.com/user-attachments/assets/0bddd93d-b41c-4860-a0dc-aa9e797a2cae" />
 
 
 # 📡 Part 1: focuses on **Data Profiling**
