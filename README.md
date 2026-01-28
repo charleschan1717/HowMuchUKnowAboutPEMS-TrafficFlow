@@ -282,10 +282,6 @@ Visualizing the statistical properties reveals a critical challenge for machine 
 > **Takeaway:** This analysis proves the necessity of **Adaptive Normalization** techniques (like **RevIN** or **Stationary Attention**). The model must dynamically adjust its statistical view for each input window to align these disparate distributions.
 ---
 
-
-
----
-
 ### 🛠 Analysis 3: Spatial Heterogeneity & Noise Handling
 
 Before we can trust our model, we must answer two critical questions:
