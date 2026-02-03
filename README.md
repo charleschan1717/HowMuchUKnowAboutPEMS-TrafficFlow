@@ -45,9 +45,9 @@ print(f"Data Shape: {data.shape}")
 
 The shape `(17856, 170, 3)` reveals three critical dimensions:
 
-1. **Time ():** Represents 62 days of continuous monitoring sampled at 5-minute intervals.
-2. **Space ():** Represents 170 distinct sensors on the San Bernardino highway network.
-3. **Features ():**
+1. **Time:** Represents 62 days of continuous monitoring sampled at 5-minute intervals.
+2. **Space:** Represents 170 distinct sensors on the San Bernardino highway network.
+3. **Features:**
 * **Index 0: Flow (Volume)** - The number of cars.
 * **Index 1: Occupancy** - The ratio of time the sensor is occupied (0.0 to 1.0).
 * **Index 2: Speed** - Average speed (mph).
